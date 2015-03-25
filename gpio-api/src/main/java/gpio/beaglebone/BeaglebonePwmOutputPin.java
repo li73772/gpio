@@ -22,7 +22,8 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
     private OutputStreamWriter duty;
     private OutputStreamWriter polarity;
     private long periodNs;
-    private long dutyCycle;
+    private long dutyCycleNs;
+    private float dutyCycle;
 
     /**
      * Constructor.
@@ -36,14 +37,15 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
         this.device = device;
         device.setup(pinDefinition, GpioDevice.PinUse.OUTPUT_PWM);
         File pwmTest = device.findFile(device.getOcpDir(), "pwm_test_" + pinDefinition.getKey(), true);
+        
         period = new OutputStreamWriter(new FileOutputStream(new File(pwmTest, "period")));
         duty = new OutputStreamWriter(new FileOutputStream(new File(pwmTest, "duty")));
         polarity = new OutputStreamWriter(new FileOutputStream(new File(pwmTest, "polarity")));
-        frequency((float) 2000.0).dutyCycle((float) 0.0).polarity(false);
+        dutyCycle((float) 0.0).frequency((float) 2000.0).polarity(false);
     }
 
     /**
-     * @param frequency Frequency.
+     * @param frequency Frequency in Hz.
      * @throws java.io.IOException Failed to read/write device.
      */
     @Override
@@ -52,7 +54,11 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
             throw new IllegalArgumentException("frequency must be greater than 0");
         }
         this.periodNs = BigDecimal.valueOf(1e9).divide(new BigDecimal(frequency)).longValue();
+        // change the duty before changing the period as the change would fail because the duty is longer than the period.
+        if (this.periodNs <= this.dutyCycleNs) dutyCycle(this.dutyCycleNs);
         this.period.write(Long.toString(this.periodNs));
+        if (this.periodNs > this.dutyCycleNs) dutyCycle(this.dutyCycle);
+        this.period.flush();
         return this;
     }
 
@@ -72,7 +78,7 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
     }
 
     /**
-     * @param dutyCycle Duty cycle, minimum value is 0, maxiumum value is 1.
+     * @param dutyCycle Duty cycle, minimum value is 0, maximum value is 1.
      * @throws java.io.IOException Failed to read/write device.
      */
     @Override
@@ -80,15 +86,16 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
         if (dutyCycle < 0.0 || dutyCycle > 1.0) {
             new IllegalArgumentException("dutyCycle must have a value from 0.0 to 1.0");
         }
-        this.dutyCycle = (long) (this.periodNs * dutyCycle);
-        this.duty.write(Long.toString(this.dutyCycle));
-//        System.out.println("dutyCycle " + periodNs + " " + dutyCycle + " " + this.dutyCycle);
+        this.dutyCycle = dutyCycle;
+        this.dutyCycleNs = (long) (this.periodNs * dutyCycle);
+        this.duty.write(Long.toString(this.dutyCycleNs));
+//        System.out.println("dutyCycle " + periodNs + " " + dutyCycle + " " + this.dutyCycleNs);
         this.duty.flush();
         return this;
     }
 
     /**
-     * @param dutyCycle Duty cycle, minimum value is 0, maxiumum value is Short.MAX_VALUE.
+     * @param dutyCycle Duty cycle, minimum value is 0, maximum value is Short.MAX_VALUE.
      * @throws java.io.IOException Failed to read/write device.
      */
     @Override
@@ -97,9 +104,10 @@ public class BeaglebonePwmOutputPin implements PwmOutputPin {
             new IllegalArgumentException("dutyCycle must have a value from 0 to (including) Short.MAX_VALUE");
         }
         try {
-        this.dutyCycle = (long) (this.periodNs * dutyCycle / Short.MAX_VALUE);
-        this.duty.write(Long.toString(this.dutyCycle));
-//        System.out.println("dutyCycle " + periodNs + " " + dutyCycle + " " + this.dutyCycle);
+        this.dutyCycle = dutyCycle / Short.MAX_VALUE;
+        this.dutyCycleNs = (long) (this.periodNs * this.dutyCycle);
+        this.duty.write(Long.toString(this.dutyCycleNs));
+//        System.out.println("dutyCycle " + periodNs + " " + dutyCycle + " " + this.dutyCycleNs);
         this.duty.flush();
         } catch (IOException e) {
             System.out.println("IOException dutyCycle=" + dutyCycle);
